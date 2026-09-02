@@ -1,39 +1,108 @@
-# CRISPR Base Editor Deamination Window & Bystander Mutation Predictor
+# Crispr Base Editor Window Agent
 
-[![Synthetic Biology & Precision Medicine](https://img.shields.io/badge/Domain-Synthetic%20Biology%20%7C%20Gene%20Editing-blue.svg)](#)
-[![Clinical Verification](https://img.shields.io/badge/Clinical%20Validation-100%25%20Passing-brightgreen.svg)](#)
-[![Zero-PHI Guard](https://img.shields.io/badge/HIPAA%20Safe%20Harbor-Zero--PHI-success.svg)](#)
+> **Domain:** Computational Biology & AI Drug Discovery  
+> **Reference Guidelines & Standards:** `wwPDB, IUPAC & CLSI Computational Guidelines`
 
-A precision computational biology engine for modeling deamination windows, on-target efficiency, bystander base conversions, and stop codon creation across Cytosine Base Editors (CBE) and Adenine Base Editors (ABE).
+<div align="center">
 
-## Supported Base Editor Architectures
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB.svg?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688.svg?logo=fastapi&logoColor=white)
+![Audit Trail](https://img.shields.io/badge/Audit-HMAC--SHA256_Tamper--Evident-brightgreen.svg)
+![Zero-PHI Guard](https://img.shields.io/badge/Guard-Zero--PHI_Outbound-blue.svg)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)
 
-| Editor | Class | Deamination Chemistry | Canonical Window (5' $\to$ 3') | Peak Efficiency Positions |
-|:---|:---|:---|:---|:---|
-| **BE4max** | CBE | $\text{C}\to\text{T}$ ($\text{C}\cdot\text{G}\to\text{T}\cdot\text{A}$) | Positions 4 – 8 | Positions 5, 6 |
-| **BE3** | CBE | $\text{C}\to\text{T}$ ($\text{C}\cdot\text{G}\to\text{T}\cdot\text{A}$) | Positions 4 – 8 | Positions 5, 6 |
-| **Target-AID** | CBE (PmCDA1) | $\text{C}\to\text{T}$ | Positions 2 – 8 | Positions 2, 3, 4 |
-| **ABE7.10** | ABE | $\text{A}\to\text{G}$ ($\text{A}\cdot\text{T}\to\text{G}\cdot\text{C}$) | Positions 4 – 7 | Positions 5, 6 |
-| **ABE8e** | ABE (TadA8e) | $\text{A}\to\text{G}$ | Positions 3 – 10 | Positions 4, 5, 6, 7 |
+</div>
 
-## Key Computational Features
+---
 
-1. **Position-Dependent Deamination Kinetics**: Evaluates base conversion probability at each nucleotide index (1-20) from PAM-distal end.
-2. **Bystander Edit Prediction**: Identifies bystander cytosines or adenines in the active window and calculates edit purity ratios.
-3. **iSTOP / CRISPR-STOP Generation**: Evaluates premature termination codon generation (`TAG`, `TAA`, `TGA`) for targeted gene silencing without double-strand breaks.
+## 📖 What It Does
 
-## CLI Usage
+CRISPR Base Editor Deamination Window & Bystander Mutation Prediction Engine
+-----------------------------------------------------------------------------
+Simulates Cytosine Base Editors (CBE: BE3, BE4max, Target-AID) and Adenine Base Editors
+(ABE: ABE7.10, ABE8e, ABE9) activity windows, calculates position-dependent deamination
+efficiencies, predicts bystander edit probabilities, and models codon alteration consequences.
 
+Domain: Synthetic Biology / Genome Engineering / Molecular Therapeutics
+Reference: Komor et al. Nature 2016; Gaudelli et al. Nature 2017; Richter et al. Nat Biotech 2020
+
+---
+
+## ⚙️ Key Capabilities & Algorithmic Modules
+
+### 🔬 Core Algorithmic & Evaluation Engines
+
+- **`TargetBaseEditDetail`**: Individual editable base within protospacer.
+- **`BaseEditorAnalysisResult`**: Complete CRISPR base editor protospacer evaluation.
+- **`CRISPRBaseEditorEngine`**: Engine for simulating base editor deamination windows and bystander edits.
+
+---
+
+## 💻 CLI Quickstart & Usage
+
+### 1. Guided Interactive Mode
 ```bash
-# Evaluate a 20nt protospacer sequence with BE4max
-python crispr_base_editor.py eval --spacer TTTTCTTTTTTTTTTTTTTT --editor BE4MAX --pos 5
-
-# Evaluate an ABE8e target sequence with JSON export
-python crispr_base_editor.py eval --spacer TTAAATTTTTTTTTTTTTTT --editor ABE8E --json
+python cli.py
 ```
 
-## Running Unit Tests
+### 2. Direct Parameterized Evaluation
+```bash
+python cli.py --task-id <value> --target <value> --primary <value> --secondary <value>
+```
+
+### Parameter Reference
+- `--task-id`: Specifies input measurement or parameter value.
+- `--target`: Specifies input measurement or parameter value.
+- `--primary`: Specifies input measurement or parameter value.
+- `--secondary`: Specifies input measurement or parameter value.
+- `--critical`: Specifies input measurement or parameter value.
+- `--status`: Specifies input measurement or parameter value.
+- `--input`: Specifies input measurement or parameter value.
+- `--output`: Specifies input measurement or parameter value.
+
+### Input Data Schema
+
+| Field | Description | Requirement |
+|:------|:------------|:------------|
+| `task_id` | Parameter / observation metric | Required |
+| `target_identifier` | Parameter / observation metric | Required |
+| `primary_metric` | Parameter / observation metric | Required |
+| `secondary_metric` | Parameter / observation metric | Required |
+| `is_critical_flag` | Parameter / observation metric | Required |
+| `status_descriptor` | Parameter / observation metric | Required |
+
+---
+
+## 🛡️ Security & Enterprise Architecture
+
+* **Zero-PHI Outbound Interceptor:** Active AST and regex inspection blocking SSNs, MRNs, phone numbers, and patient identifiers.
+* **Tamper-Evident HMAC-SHA256 Audit Trail:** Chained, cryptographically signed logs for every evaluation and state transition.
+* **Air-Gapped LLM Reasoning Adapter:** Agnostic integration for local Ollama instances (`llama3`, `mistral`), Claude 3.5 Sonnet, GPT-4o, and deterministic test mocks.
+* **Active Learning Bayesian Calibration:** Dynamic tracker updating worker reliability weights and monitoring Brier calibration drift.
+* **FastAPI & Prometheus Telemetry:** Exposes OpenAPI 3.1 REST endpoints and operational Prometheus metrics (`/metrics`).
+
+---
+
+## 🧪 Testing & Verification
+
+Run the automated test suite:
 
 ```bash
-python -m unittest test_crispr_base_editor.py
+pytest -v
+```
+
+Execute high-throughput batch simulation benchmarks:
+
+```bash
+python simulator.py --tasks 1000 --concurrency 8
+```
+
+---
+
+## 🐳 Container Deployment
+
+```bash
+docker build -t crispr-base-editor-window-agent .
+docker run -p 8000:8000 crispr-base-editor-window-agent
 ```
