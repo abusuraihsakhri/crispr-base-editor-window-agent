@@ -4,12 +4,28 @@ Command Line Interface for Crispr Base Editor Window Agent.
 import argparse
 import csv
 import json
+import os
 import sys
 from agents.models import SystemTaskPayload
 from agents.supervisor import SystemSupervisor
 from agents.base import AuditLogger
 
 supervisor = SystemSupervisor(model_provider="mock")
+
+
+def _validate_file_path(path: str, must_exist: bool = False) -> str:
+    """Validate file path for safety: reject path traversal and null bytes."""
+    # Reject null bytes
+    if "\x00" in path:
+        raise argparse.ArgumentTypeError(f"Invalid path: contains null bytes")
+    # Normalize and resolve to absolute path
+    normalized = os.path.normpath(os.path.abspath(path))
+    # Reject paths that try to escape via .. after normalization
+    if ".." in path.split(os.sep):
+        raise argparse.ArgumentTypeError(f"Invalid path: path traversal detected")
+    if must_exist and not os.path.isfile(normalized):
+        raise argparse.ArgumentTypeError(f"File not found: {path}")
+    return normalized
 
 
 def main(argv=None):
@@ -31,8 +47,8 @@ def main(argv=None):
 
     # Batch
     p_batch = subparsers.add_parser("batch", help="Batch process CSV records")
-    p_batch.add_argument("-i", "--input", required=True)
-    p_batch.add_argument("-o", "--output", default="results.csv")
+    p_batch.add_argument("-i", "--input", required=True, type=lambda p: _validate_file_path(p, must_exist=True))
+    p_batch.add_argument("-o", "--output", default="results.csv", type=lambda p: _validate_file_path(p, must_exist=False))
 
     # Verify Audit
     subparsers.add_parser("verify-audit", help="Verify HMAC audit trail integrity")

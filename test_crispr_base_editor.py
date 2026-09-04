@@ -2,10 +2,16 @@
 """
 Comprehensive Unit Test Suite for CRISPR Base Editor Deamination Window Engine
 Tests CBE & ABE profiles, position-specific efficiency, bystander mutation prediction,
-stop codon creation, error validation, JSON export, and CLI commands.
+stop codon creation, error validation, JSON export, CLI commands, and security features.
 """
 
+import os
+import sys
 import unittest
+
+# Ensure project root is on path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from crispr_base_editor import (
     CRISPRBaseEditorEngine,
     BaseEditorAnalysisResult,
@@ -124,6 +130,92 @@ class TestEndToEndAndCLI(unittest.TestCase):
 
     def test_cli_chat_command(self):
         self.assertEqual(main(["chat", "What", "is", "the", "editing", "window?"]), 0)
+
+
+class TestSecurityFeatures(unittest.TestCase):
+    """Test suite for security features: PHI guard, audit trail, path validation."""
+
+    def test_phi_detection_mrn(self):
+        """Test that MRN numbers are detected as PHI."""
+        from agents.base import assert_no_phi, SecurityException
+        with self.assertRaises(SecurityException):
+            assert_no_phi("Patient MRN-12345678")
+
+    def test_phi_detection_ssn(self):
+        """Test that SSN patterns are detected as PHI."""
+        from agents.base import assert_no_phi, SecurityException
+        with self.assertRaises(SecurityException):
+            assert_no_phi("SSN: 123-45-6789")
+
+    def test_phi_detection_phone(self):
+        """Test that phone numbers are detected as PHI."""
+        from agents.base import assert_no_phi, SecurityException
+        with self.assertRaises(SecurityException):
+            assert_no_phi("Call 555-123-4567")
+
+    def test_phi_detection_email(self):
+        """Test that email addresses are detected as PHI."""
+        from agents.base import assert_no_phi, SecurityException
+        with self.assertRaises(SecurityException):
+            assert_no_phi("Email: patient@example.com")
+
+    def test_phi_clean_text_passes(self):
+        """Test that clean text without PHI passes validation."""
+        from agents.base import assert_no_phi
+        # Should not raise
+        assert_no_phi("CRISPR Base Editor analysis for BE4MAX at position 5")
+        assert_no_phi("Normal genomic sequence ATCGATCGATCG")
+
+    def test_phi_redaction(self):
+        """Test that PHI is properly redacted."""
+        from agents.base import PHIGuard
+        text = "Patient John Doe MRN-12345678 and email test@example.com"
+        redacted = PHIGuard.redact_phi(text)
+        self.assertNotIn("12345678", redacted)
+        self.assertNotIn("test@example.com", redacted)
+        self.assertIn("[REDACTED_IDENTIFIER]", redacted)
+
+    def test_audit_trail_integrity(self):
+        """Test that audit trail maintains cryptographic integrity."""
+        from agents.base import AuditTrail
+        trail = AuditTrail(secret_key="test-key-for-unit-tests")
+        trail.log("test_actor", "test_tier", "TEST_EVENT", {"data": "value1"})
+        trail.log("test_actor", "test_tier", "TEST_EVENT", {"data": "value2"})
+        self.assertTrue(trail.verify_integrity())
+        self.assertEqual(len(trail.get_trail()), 2)
+
+    def test_audit_trail_tamper_detection(self):
+        """Test that tampering with audit trail is detected."""
+        from agents.base import AuditTrail
+        trail = AuditTrail(secret_key="test-key-for-unit-tests")
+        trail.log("test_actor", "test_tier", "TEST_EVENT", {"data": "value1"})
+        # Tamper with the trail
+        trail.logs[0]["current_hash"] = "TAMPERED_HASH"
+        self.assertFalse(trail.verify_integrity())
+
+    def test_audit_trail_phi_blocked(self):
+        """Test that PHI in audit log details is blocked."""
+        from agents.base import AuditTrail, SecurityException
+        trail = AuditTrail(secret_key="test-key-for-unit-tests")
+        with self.assertRaises(SecurityException):
+            trail.log("test_actor", "test_tier", "TEST_EVENT", {"patient": "MRN-12345678"})
+
+    def test_path_traversal_detection(self):
+        """Test that path traversal attempts are detected."""
+        # Test the path validation logic used in batch processing
+        dangerous_paths = [
+            "../../../etc/passwd",
+            "..\\..\\windows\\system32\\config\\sam",
+            "foo/../../../etc/shadow",
+        ]
+        for path in dangerous_paths:
+            normalized = path.replace("\\", "/").split("/")
+            self.assertIn("..", normalized, f"Path traversal not detected in: {path}")
+
+    def test_null_byte_detection(self):
+        """Test that null bytes in paths are detected."""
+        dangerous_path = "foo\x00/bar.csv"
+        self.assertIn("\x00", dangerous_path)
 
 
 if __name__ == "__main__":

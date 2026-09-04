@@ -14,6 +14,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import sys
 from dataclasses import dataclass, field, asdict
 from typing import Dict, Any, List, Optional, Tuple
@@ -295,6 +296,15 @@ def main(argv=None):
         return 0
 
     elif args.command == "batch":
+        # Validate input/output paths for security
+        for path in [args.input, args.output]:
+            if "\x00" in path:
+                print(f"Error: Invalid path contains null bytes", file=sys.stderr)
+                return 1
+            if ".." in path.replace("\\", "/").split("/"):
+                print(f"Error: Path traversal detected in '{path}'", file=sys.stderr)
+                return 1
+
         with open(args.input, mode="r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
