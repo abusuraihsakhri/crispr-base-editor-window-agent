@@ -1,67 +1,41 @@
 #!/usr/bin/env python3
-"""
-CRISPR Base Editor Deamination Window & Bystander Mutation Prediction Engine
------------------------------------------------------------------------------
-Simulates Cytosine Base Editors (CBE: BE3, BE4max, Target-AID) and Adenine Base Editors
-(ABE: ABE7.10, ABE8e, ABE9) activity windows, calculates position-dependent deamination
-efficiencies, predicts bystander edit probabilities, and models codon alteration consequences.
+"""Research-use CRISPR base-editor activity-window and bystander heuristic.
 
-Domain: Synthetic Biology / Genome Engineering / Molecular Therapeutics
-Reference: Komor et al. Nature 2016; Gaudelli et al. Nature 2017; Richter et al. Nat Biotech 2020
+Profiles below are fixed relative weights, not assay-calibrated probabilities.
 """
+from __future__ import annotations
 
 import argparse
 import csv
 import json
 import math
-import os
 import sys
-from dataclasses import dataclass, field, asdict
-from typing import Dict, Any, List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
-
-GENETIC_CODE = {
-    "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
-    "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
-    "TAT": "Y", "TAC": "Y", "TAA": "*", "TAG": "*",
-    "TGT": "C", "TGC": "C", "TGA": "*", "TGG": "W",
-    "CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
-    "CCT": "P", "CCC": "P", "CCA": "P", "CCG": "P",
-    "CAT": "H", "CAC": "H", "CAA": "Q", "CAG": "Q",
-    "CGT": "R", "CGC": "R", "CGA": "R", "CGG": "R",
-    "ATT": "I", "ATC": "I", "ATA": "I", "ATG": "M",
-    "ACT": "T", "ACC": "T", "ACA": "T", "ACG": "T",
-    "AAT": "N", "AAC": "N", "AAA": "K", "AAG": "K",
-    "AGT": "S", "AGC": "S", "AGA": "R", "AGG": "R",
-    "GTT": "V", "GTC": "V", "GTA": "V", "GTG": "V",
-    "GCT": "A", "GCC": "A", "GCA": "A", "GCG": "A",
-    "GAT": "D", "GAC": "D", "GAA": "E", "GAG": "E",
-    "GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G",
+STOP_CODONS = {"TAG", "TAA", "TGA"}
+IUPAC_DNA = set("ACGTRYSWKMBDHVN")
+EDITOR_WINDOW_PROFILES: Dict[str, Dict[int, float]] = {
+    "BE4MAX": {3: .15, 4: .65, 5: .95, 6: .90, 7: .70, 8: .35, 9: .10},
+    "BE3": {4: .50, 5: .85, 6: .80, 7: .55, 8: .25},
+    "TARGET_AID": {2: .75, 3: .90, 4: .85, 5: .60, 6: .40, 7: .25, 8: .15},
+    "ABE7.10": {4: .45, 5: .85, 6: .80, 7: .50},
+    "ABE8E": {3: .60, 4: .88, 5: .98, 6: .96, 7: .92, 8: .80, 9: .55, 10: .30},
 }
-
-# Deamination profiles: {position: relative_efficiency (0.0 to 1.0)}
-EDITOR_WINDOW_PROFILES = {
-    "BE4MAX": {  # Canonical C->T, window 4-8, peak at 5-6
-        3: 0.15, 4: 0.65, 5: 0.95, 6: 0.90, 7: 0.70, 8: 0.35, 9: 0.10
-    },
-    "BE3": {  # Canonical C->T, window 4-8
-        4: 0.50, 5: 0.85, 6: 0.80, 7: 0.55, 8: 0.25
-    },
-    "TARGET_AID": {  # PmCDA1 C->T, window 2-8, peak 2-4
-        2: 0.75, 3: 0.90, 4: 0.85, 5: 0.60, 6: 0.40, 7: 0.25, 8: 0.15
-    },
-    "ABE7.10": {  # Canonical A->G, window 4-7, peak 5-6
-        4: 0.45, 5: 0.85, 6: 0.80, 7: 0.50
-    },
-    "ABE8E": {  # Evolved TadA8e A->G, broad high-activity window 3-10
-        3: 0.60, 4: 0.88, 5: 0.98, 6: 0.96, 7: 0.92, 8: 0.80, 9: 0.55, 10: 0.30
-    }
+EDITOR_PROPERTIES: Dict[str, Tuple[str, str, str]] = {
+    "BE4MAX": ("CBE", "C", "T"), "BE3": ("CBE", "C", "T"),
+    "TARGET_AID": ("CBE", "C", "T"), "ABE7.10": ("ABE", "A", "G"),
+    "ABE8E": ("ABE", "A", "G"),
 }
+EDITOR_ALIASES = {
+    "BE4_MAX": "BE4MAX", "TARGETAID": "TARGET_AID", "ABE7_10": "ABE7.10",
+    "ABE8_E": "ABE8E",
+}
+SUPPORTED_EDITORS = tuple(EDITOR_PROPERTIES)
 
 
 @dataclass
 class TargetBaseEditDetail:
-    """Individual editable base within protospacer."""
     position_1_indexed: int
     original_base: str
     edited_base: str
@@ -69,27 +43,26 @@ class TargetBaseEditDetail:
     is_in_deamination_window: bool
     predicted_efficiency_percent: float
     is_bystander: bool
-    edit_classification: str  # 'INTENDED_TARGET', 'HIGH_RISK_BYSTANDER', 'MINOR_BYSTANDER', 'OUTSIDE_WINDOW'
+    edit_classification: str
 
 
 @dataclass
 class BaseEditorAnalysisResult:
-    """Complete CRISPR base editor protospacer evaluation."""
     editor_name: str
-    editor_type: str  # 'CBE' or 'ABE'
-    protospacer_sequence: str  # 20 nt (5' to 3')
-    pam_sequence: str  # 3 nt (e.g. NGG)
+    editor_type: str
+    protospacer_sequence: str
+    pam_sequence: str
     intended_position: Optional[int]
     total_target_bases: int
     target_bases_in_window: int
     bystander_count_in_window: int
     predicted_on_target_efficiency_percent: float
-    predicted_purity_ratio: float  # on_target / (on_target + sum_bystanders)
+    predicted_purity_ratio: float
     base_edits: List[TargetBaseEditDetail]
     stop_codon_created: bool
     edited_sequence_preview: str
-    overall_suitability: str  # 'HIGH_PRECISION', 'MODERATE_BYSTANDER_RISK', 'POOR_OFF_TARGET_RISK', 'SUB_OPTIMAL_WINDOW'
-    clinical_recommendation: str
+    overall_suitability: str
+    clinical_recommendation: str  # retained for backwards-compatible result schema
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -99,239 +72,201 @@ class BaseEditorAnalysisResult:
 
 
 class CRISPRBaseEditorEngine:
-    """Engine for simulating base editor deamination windows and bystander edits."""
+    @staticmethod
+    def normalize_editor_name(name: str) -> str:
+        key = str(name).strip().upper().replace("-", "_")
+        key = EDITOR_ALIASES.get(key, key)
+        if key not in EDITOR_PROPERTIES:
+            raise ValueError(f"Unsupported editor '{name}'. Supported editors: {', '.join(SUPPORTED_EDITORS)}.")
+        return key
+
+    @classmethod
+    def get_editor_type(cls, name: str) -> Tuple[str, str, str]:
+        return EDITOR_PROPERTIES[cls.normalize_editor_name(name)]
 
     @staticmethod
-    def get_editor_type(editor_name: str) -> Tuple[str, str, str]:
-        """Returns (editor_type, target_base, edited_base)."""
-        name = editor_name.upper().replace("-", "_")
-        if "ABE" in name:
-            return "ABE", "A", "G"
-        else:
-            return "CBE", "C", "T"
+    def _protospacer(value: str) -> str:
+        seq = str(value).upper().strip().replace("U", "T")
+        if len(seq) != 20:
+            raise ValueError(f"Protospacer must be exactly 20 nucleotides in length (received {len(seq)}).")
+        invalid = sorted(set(seq) - set("ACGT"))
+        if invalid:
+            raise ValueError(f"Protospacer contains unsupported nucleotide(s): {', '.join(invalid)}. Use A/C/G/T only.")
+        return seq
+
+    @staticmethod
+    def _pam(value: str) -> str:
+        pam = str(value).upper().strip().replace("U", "T")
+        if len(pam) != 3:
+            raise ValueError(f"PAM must be exactly 3 IUPAC nucleotide symbols (received {len(pam)}).")
+        invalid = sorted(set(pam) - IUPAC_DNA)
+        if invalid:
+            raise ValueError(f"PAM contains unsupported IUPAC symbol(s): {', '.join(invalid)}.")
+        return pam
 
     @classmethod
     def evaluate_protospacer(
-        cls,
-        protospacer_20nt: str,
-        pam_3nt: str = "NGG",
-        editor_name: str = "BE4MAX",
-        intended_position: Optional[int] = None,
-        base_efficiency_scaling: float = 65.0,  # Peak edit efficiency %
+        cls, protospacer_20nt: str, pam_3nt: str = "NGG", editor_name: str = "BE4MAX",
+        intended_position: Optional[int] = None, base_efficiency_scaling: float = 65.0,
     ) -> BaseEditorAnalysisResult:
-        """
-        Analyze a 20nt protospacer sequence for a given base editor.
-        Protospacer positions are 1 to 20 from 5' to 3' (PAM at 21-23).
-        """
-        seq = protospacer_20nt.upper().strip().replace("U", "T")
-        if len(seq) != 20:
-            raise ValueError(f"Protospacer must be exactly 20 nucleotides in length (received {len(seq)}).")
+        """Analyze a 20-nt protospacer; positions are 1-indexed from its 5' end."""
+        seq, pam = cls._protospacer(protospacer_20nt), cls._pam(pam_3nt)
+        editor = cls.normalize_editor_name(editor_name)
+        editor_type, target_base, edited_base = EDITOR_PROPERTIES[editor]
+        profile = EDITOR_WINDOW_PROFILES[editor]
+        scale = float(base_efficiency_scaling)
+        if not math.isfinite(scale) or not 0 <= scale <= 100:
+            raise ValueError("base_efficiency_scaling must be a finite percentage between 0 and 100.")
+        if intended_position is not None:
+            if isinstance(intended_position, bool) or not isinstance(intended_position, int) or not 1 <= intended_position <= 20:
+                raise ValueError("intended_position must be an integer from 1 to 20.")
+            if seq[intended_position - 1] != target_base:
+                raise ValueError(f"Position {intended_position} is '{seq[intended_position - 1]}', but {editor} edits '{target_base}'.")
 
-        editor_key = editor_name.upper().replace("-", "_")
-        profile = EDITOR_WINDOW_PROFILES.get(editor_key, EDITOR_WINDOW_PROFILES["BE4MAX"])
-        ed_type, target_base, edited_base = cls.get_editor_type(editor_name)
+        target_indices = [i for i, base in enumerate(seq) if base == target_base]
+        active_positions = [i + 1 for i in target_indices if profile.get(i + 1, 0) > 0]
+        intended = intended_position
+        if intended is None and active_positions:
+            intended = max(active_positions, key=profile.get)
 
         edits: List[TargetBaseEditDetail] = []
-        target_indices = [i for i, b in enumerate(seq) if b == target_base]
+        preview = list(seq)
+        on_target = 0.0
+        bystander_scores: List[float] = []
+        for i in target_indices:
+            pos = i + 1
+            score = round(profile.get(pos, 0) * scale, 1)
+            in_window, is_target = score > 0, pos == intended
+            is_bystander = in_window and not is_target
+            if is_target:
+                on_target = score
+                preview[i] = edited_base.lower()
+            elif is_bystander:
+                bystander_scores.append(score)
+                if score >= 25:
+                    preview[i] = edited_base.lower()
+            classification = (
+                "INTENDED_TARGET" if is_target else
+                ("HIGH_RISK_BYSTANDER" if is_bystander and score > 30 else
+                 ("MINOR_BYSTANDER" if is_bystander else "OUTSIDE_WINDOW"))
+            )
+            edits.append(TargetBaseEditDetail(pos, target_base, edited_base, is_target, in_window, score, is_bystander, classification))
 
-        on_target_eff = 0.0
-        bystander_effs = []
-        bystander_in_window_count = 0
-        target_in_window_count = 0
-
-        # Build modified preview sequence (replacing high-probability bases in window)
-        preview_list = list(seq)
-
-        for idx in target_indices:
-            pos = idx + 1  # 1-indexed
-            rel_eff = profile.get(pos, 0.0)
-            in_window = rel_eff > 0.0
-            eff_pct = round(rel_eff * base_efficiency_scaling, 1)
-
-            is_intended = (pos == intended_position) if intended_position else (in_window and on_target_eff == 0.0)
-
-            if in_window:
-                target_in_window_count += 1
-                if is_intended:
-                    on_target_eff = eff_pct
-                    classification = "INTENDED_TARGET"
-                    preview_list[idx] = edited_base.lower()
-                else:
-                    bystander_in_window_count += 1
-                    bystander_effs.append(eff_pct)
-                    classification = "HIGH_RISK_BYSTANDER" if eff_pct > 30.0 else "MINOR_BYSTANDER"
-                    if eff_pct >= 25.0:
-                        preview_list[idx] = edited_base.lower()
-            else:
-                classification = "OUTSIDE_WINDOW"
-
-            edits.append(TargetBaseEditDetail(
-                position_1_indexed=pos,
-                original_base=target_base,
-                edited_base=edited_base,
-                is_intended_target=is_intended,
-                is_in_deamination_window=in_window,
-                predicted_efficiency_percent=eff_pct,
-                is_bystander=(in_window and not is_intended),
-                edit_classification=classification,
-            ))
-
-        total_bystander_eff = sum(bystander_effs)
-        total_active_eff = on_target_eff + total_bystander_eff
-
-        if total_active_eff > 0:
-            purity = round(on_target_eff / total_active_eff, 3)
-        else:
-            purity = 1.0 if on_target_eff > 0 else 0.0
-
-        # Check for Stop Codon introduction (TAG, TAA, TGA)
-        stop_created = False
-        edited_seq_str = "".join(preview_list).upper()
-        for i in range(0, len(edited_seq_str) - 2, 3):
-            codon = edited_seq_str[i:i+3]
-            if codon in ["TAG", "TAA", "TGA"]:
-                stop_created = True
-                break
-
-        # Overall suitability classification
-        if on_target_eff >= 40.0 and bystander_in_window_count == 0:
+        total = on_target + sum(bystander_scores)
+        purity = round(on_target / total, 3) if total else 0.0
+        edited_upper = "".join(preview).upper()
+        stop_created = any(
+            seq[i:i + 3] not in STOP_CODONS and edited_upper[i:i + 3] in STOP_CODONS
+            for i in range(0, len(seq) - 2, 3)
+        )
+        bystanders = len(bystander_scores)
+        if on_target >= 40 and bystanders == 0:
             suitability = "HIGH_PRECISION"
-            rec = "Optimal clean single-base edit with zero active bystanders in deamination window."
-        elif on_target_eff >= 30.0 and bystander_in_window_count > 0 and purity >= 0.70:
+            interpretation = "Heuristic profile favors a single editable target with no modeled in-window bystanders."
+        elif on_target >= 30 and bystanders and purity >= .70:
             suitability = "MODERATE_BYSTANDER_RISK"
-            rec = "Good target deamination; minor bystander activity present. Consider engineered narrow-window editor (e.g. eA3A or ABE8e-V106W)."
-        elif on_target_eff > 0.0 and purity < 0.70:
-            suitability = "POOR_OFF_TARGET_RISK"
-            rec = "Significant bystander editing exceeds 30% product ratio. Shift gRNA spacer or switch to Cas12a/prime editing."
+            interpretation = "Target activity is favorable, but modeled in-window bystander editing is present."
+        elif on_target > 0 and purity < .70:
+            suitability = "HIGH_BYSTANDER_RISK"
+            interpretation = "Modeled bystander contribution is large relative to the intended edit; consider an alternative guide or narrower-window editor."
         else:
             suitability = "SUB_OPTIMAL_WINDOW"
-            rec = "Target base is outside the optimal deamination window. Redesign spacer with alternative PAM position."
+            interpretation = "The intended target has little or no activity in the selected heuristic window; consider an alternative guide/editor configuration."
 
         return BaseEditorAnalysisResult(
-            editor_name=editor_name,
-            editor_type=ed_type,
-            protospacer_sequence=seq,
-            pam_sequence=pam_3nt.upper(),
-            intended_position=intended_position,
-            total_target_bases=len(target_indices),
-            target_bases_in_window=target_in_window_count,
-            bystander_count_in_window=bystander_in_window_count,
-            predicted_on_target_efficiency_percent=round(on_target_eff, 1),
-            predicted_purity_ratio=purity,
-            base_edits=edits,
-            stop_codon_created=stop_created,
-            edited_sequence_preview="".join(preview_list),
-            overall_suitability=suitability,
-            clinical_recommendation=rec,
+            editor, editor_type, seq, pam, intended, len(target_indices), len(active_positions), bystanders,
+            round(on_target, 1), purity, edits, stop_created, "".join(preview), suitability, interpretation,
         )
 
 
-# ==============================================================================
-# CLI & BATCH PROCESSING
-# ==============================================================================
+def _safe_csv_path(path: str) -> str:
+    if "\x00" in path:
+        raise ValueError("Invalid path: contains a null byte.")
+    if ".." in path.replace("\\", "/").split("/"):
+        raise ValueError(f"Path traversal is not allowed: '{path}'.")
+    return path
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(
-        prog="crispr-base-editor-window-agent",
-        description="CRISPR Base Editor Deamination Window & Bystander Mutation Predictor"
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Eval
-    p_eval = subparsers.add_parser("eval", help="Evaluate 20nt protospacer sequence")
-    p_eval.add_argument("--spacer", "-s", required=True, help="20nt protospacer sequence (5' to 3')")
-    p_eval.add_argument("--pam", default="NGG", help="PAM motif (default: NGG)")
-    p_eval.add_argument("--editor", "-e", default="BE4MAX", choices=["BE4MAX", "BE3", "TARGET_AID", "ABE7.10", "ABE8E"])
-    p_eval.add_argument("--pos", type=int, default=None, help="Intended target position (1-20)")
-    p_eval.add_argument("--json", action="store_true", help="Output JSON format")
-
-    # Chat
-    p_chat = subparsers.add_parser("chat", help="Ask CRISPR base editing questions")
-    p_chat.add_argument("query", nargs="+")
-
-    # Batch
-    p_batch = subparsers.add_parser("batch", help="Batch process CSV of gRNAs")
-    p_batch.add_argument("-i", "--input", required=True)
-    p_batch.add_argument("-o", "--output", default="base_editor_results.csv")
-
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(prog="crispr-base-editor-window-agent", description="CRISPR base-editor activity-window and bystander heuristic")
+    subs = parser.add_subparsers(dest="command", required=True)
+    ev = subs.add_parser("eval", help="Evaluate a 20-nt protospacer")
+    ev.add_argument("--spacer", "-s", required=True)
+    ev.add_argument("--pam", default="NGG")
+    ev.add_argument("--editor", "-e", default="BE4MAX", choices=list(SUPPORTED_EDITORS))
+    ev.add_argument("--pos", type=int, default=None)
+    ev.add_argument("--scale", type=float, default=65.0)
+    ev.add_argument("--json", action="store_true")
+    chat = subs.add_parser("chat", help="Show concise editor/window information")
+    chat.add_argument("query", nargs="+")
+    batch = subs.add_parser("batch", help="Batch process a CSV of guide sequences")
+    batch.add_argument("-i", "--input", required=True)
+    batch.add_argument("-o", "--output", default="base_editor_results.csv")
     args = parser.parse_args(argv)
 
     if args.command == "eval":
-        res = CRISPRBaseEditorEngine.evaluate_protospacer(
-            protospacer_20nt=args.spacer,
-            pam_3nt=args.pam,
-            editor_name=args.editor,
-            intended_position=args.pos,
-        )
+        try:
+            result = CRISPRBaseEditorEngine.evaluate_protospacer(args.spacer, args.pam, args.editor, args.pos, args.scale)
+        except ValueError as exc:
+            parser.error(str(exc))
         if args.json:
-            print(res.to_json())
+            print(result.to_json())
         else:
-            print("=" * 80)
-            print(f"  CRISPR BASE EDITOR WINDOW ANALYSIS — [{res.editor_name} ({res.editor_type})]")
-            print(f"  Suitability: [{res.overall_suitability}] | Purity Ratio: {res.predicted_purity_ratio:.2f}")
-            print("=" * 80)
-            print(f"  Protospacer (5'->3'):  {res.protospacer_sequence} - PAM: {res.pam_sequence}")
-            print(f"  Edited Preview:        {res.edited_sequence_preview}")
-            print(f"  Target Bases in Window: {res.target_bases_in_window} (Bystanders: {res.bystander_count_in_window})")
-            print(f"  On-Target Efficiency:   {res.predicted_on_target_efficiency_percent:.1f}%")
-            print(f"  Stop Codon Created:     {res.stop_codon_created}")
-            print("-" * 80)
-            print("  Base Position Breakdown:")
-            for b in res.base_edits:
-                status_sym = "[TARGET]" if b.is_intended_target else ("[BYSTANDER]" if b.is_bystander else "[OUTSIDE]")
-                print(f"    * Pos {b.position_1_indexed:02d}: {b.original_base}->{b.edited_base} | Eff: {b.predicted_efficiency_percent:4.1f}% | {status_sym} ({b.edit_classification})")
-            print("-" * 80)
-            print(f"  Recommendation: {res.clinical_recommendation}")
-            print("=" * 80)
+            print(f"CRISPR Base Editor Window Heuristic — {result.editor_name} ({result.editor_type})")
+            print(f"Suitability: {result.overall_suitability}; edit-share ratio: {result.predicted_purity_ratio:.3f}")
+            print(f"Protospacer: {result.protospacer_sequence}  PAM: {result.pam_sequence}")
+            print(f"Edited preview: {result.edited_sequence_preview}; intended position: {result.intended_position}")
+            print(f"Target score: {result.predicted_on_target_efficiency_percent:.1f}%; bystanders: {result.bystander_count_in_window}; new stop: {result.stop_codon_created}")
+            for item in result.base_edits:
+                role = "TARGET" if item.is_intended_target else ("BYSTANDER" if item.is_bystander else "OUTSIDE")
+                print(f"Pos {item.position_1_indexed:02d}: {item.original_base}->{item.edited_base} | {item.predicted_efficiency_percent:4.1f}% | {role}")
+            print(f"Interpretation: {result.clinical_recommendation}")
+            print("Note: fixed activity profiles are heuristic, not assay-calibrated probabilities.")
         return 0
 
-    elif args.command == "chat":
-        q = " ".join(args.query).lower()
-        if "window" in q:
-            print("BE4max editing window: positions 4-8 (peak 5-6). ABE8e window: positions 3-10 (peak 5-7).")
-        elif "bystander" in q:
-            print("Bystander edits occur when additional target bases (C for CBE, A for ABE) reside within the deamination window.")
+    if args.command == "chat":
+        query = " ".join(args.query).lower()
+        if "window" in query:
+            print("BE4MAX: positions 3-9; ABE8E: positions 3-10. Profiles are heuristic relative-activity weights.")
+        elif "bystander" in query:
+            print("A bystander is another editable C (CBE) or A (ABE) in the modeled window at the same locus; it is distinct from genomic off-target editing.")
         else:
-            print("CRISPR Base Editor Engine active. Supports BE3, BE4max, Target-AID, ABE7.10, and ABE8e.")
+            print("Supported editors: " + ", ".join(SUPPORTED_EDITORS) + ".")
         return 0
 
-    elif args.command == "batch":
-        # Validate input/output paths for security
-        for path in [args.input, args.output]:
-            if "\x00" in path:
-                print(f"Error: Invalid path contains null bytes", file=sys.stderr)
-                return 1
-            if ".." in path.replace("\\", "/").split("/"):
-                print(f"Error: Path traversal detected in '{path}'", file=sys.stderr)
-                return 1
-
-        with open(args.input, mode="r", encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            rows = list(reader)
-        out_rows = []
-        for r in rows:
-            seq = r.get("spacer", r.get("protospacer", r.get("sequence", "ATGCGATCGATCGATCGATC")))
-            ed = r.get("editor", "BE4MAX")
-            pam = r.get("pam", "NGG")
-            pos = int(r["pos"]) if "pos" in r and r["pos"] else None
-
-            res_obj = CRISPRBaseEditorEngine.evaluate_protospacer(seq, pam, ed, pos)
-            out_rows.append({
-                **r,
-                "editor": res_obj.editor_name,
-                "on_target_efficiency": res_obj.predicted_on_target_efficiency_percent,
-                "purity_ratio": res_obj.predicted_purity_ratio,
-                "bystander_count": res_obj.bystander_count_in_window,
-                "stop_codon_created": res_obj.stop_codon_created,
-                "overall_suitability": res_obj.overall_suitability,
-            })
-        if out_rows:
-            with open(args.output, mode="w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=list(out_rows[0].keys()))
-                writer.writeheader()
-                writer.writerows(out_rows)
-        print(f"Batch processed {len(out_rows)} rows -> {args.output}")
-        return 0
+    try:
+        in_path, out_path = _safe_csv_path(args.input), _safe_csv_path(args.output)
+        with open(in_path, encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            fields, rows = list(reader.fieldnames or []), list(reader)
+    except (OSError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    extras = ["editor", "intended_position", "on_target_efficiency", "purity_ratio", "bystander_count", "stop_codon_created", "overall_suitability"]
+    output_fields, output_rows = list(dict.fromkeys(fields + extras)), []
+    for row_number, row in enumerate(rows, 2):
+        sequence = row.get("spacer") or row.get("protospacer") or row.get("sequence")
+        if not sequence:
+            print(f"Error in CSV row {row_number}: missing spacer/protospacer/sequence value.", file=sys.stderr)
+            return 2
+        try:
+            pos = int(row["pos"]) if row.get("pos") else None
+            result = CRISPRBaseEditorEngine.evaluate_protospacer(sequence, row.get("pam") or "NGG", row.get("editor") or "BE4MAX", pos)
+        except ValueError as exc:
+            print(f"Error in CSV row {row_number}: {exc}", file=sys.stderr)
+            return 2
+        output_rows.append({**row, "editor": result.editor_name, "intended_position": result.intended_position,
+                            "on_target_efficiency": result.predicted_on_target_efficiency_percent,
+                            "purity_ratio": result.predicted_purity_ratio, "bystander_count": result.bystander_count_in_window,
+                            "stop_codon_created": result.stop_codon_created, "overall_suitability": result.overall_suitability})
+    try:
+        with open(out_path, "w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=output_fields)
+            writer.writeheader(); writer.writerows(output_rows)
+    except OSError as exc:
+        print(f"Error: {exc}", file=sys.stderr); return 2
+    print(f"Batch processed {len(output_rows)} row(s) -> {out_path}")
+    return 0
 
 
 if __name__ == "__main__":
