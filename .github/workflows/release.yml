@@ -1,0 +1,69 @@
+name: Create versioned release
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - pyproject.toml
+      - .github/workflows/release.yml
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Resolve project version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          with Path("pyproject.toml").open("rb") as handle:
+              print(tomllib.load(handle)["project"]["version"])
+          PY
+          )"
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release when absent
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; no action required."
+            exit 0
+          fi
+
+          cat > /tmp/release-notes.md <<'EOF'
+          ## CRISPR Base Editor Window Agent 2.1.0
+
+          - Makes the sequence-based CRISPR base-editor engine the primary CLI, REST API, Docker, and browser workflow.
+          - Adds strict guide/editor/PAM/input validation and corrects same-locus bystander and stop-codon handling.
+          - Adds a browser-local Pyodide application deployed with GitHub Pages.
+          - Adds Python 3.9–3.13 CI, package smoke tests, dependency auditing, and deployed-browser verification.
+          - Removes the committed compose audit key and aligns samples, OpenAPI, regression fixtures, and documentation with actual behavior.
+
+          Live application: https://abusuraihsakhri.github.io/crispr-base-editor-window-agent/
+
+          The encoded editor activity profiles are deterministic software heuristics, not assay-calibrated editing probabilities or a clinical decision system.
+          EOF
+
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file /tmp/release-notes.md
