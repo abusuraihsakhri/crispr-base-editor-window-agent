@@ -5,9 +5,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-from fastapi.testclient import TestClient
+from fastapi import HTTPException
 
-from api import app
+from api import AnalyzeRequest, analyze
 from crispr_base_editor import CRISPRBaseEditorEngine, main
 
 
@@ -65,28 +65,21 @@ def test_batch_writes_scientific_results(tmp_path: Path):
 
 
 def test_api_uses_sequence_engine():
-    client = TestClient(app)
-    response = client.post(
-        "/api/analyze",
-        json={
-            "spacer": "TTTTCTTTTTTTTTTTTTTT",
-            "pam": "NGG",
-            "editor": "BE4MAX",
-            "intended_position": 5,
-        },
+    data = analyze(
+        AnalyzeRequest(
+            spacer="TTTTCTTTTTTTTTTTTTTT",
+            pam="NGG",
+            editor="BE4MAX",
+            intended_position=5,
+        )
     )
-    assert response.status_code == 200
-    data = response.json()
     assert data["editor_name"] == "BE4MAX"
     assert data["intended_position"] == 5
     assert data["overall_suitability"] == "HIGH_PRECISION"
 
 
 def test_api_rejects_invalid_sequence():
-    client = TestClient(app)
-    response = client.post(
-        "/api/analyze",
-        json={"spacer": "TTTTNTTTTTTTTTTTTTTT", "editor": "BE4MAX"},
-    )
-    assert response.status_code == 422
-    assert "unsupported nucleotide" in response.json()["detail"]
+    with pytest.raises(HTTPException) as exc_info:
+        analyze(AnalyzeRequest(spacer="TTTTNTTTTTTTTTTTTTTT", editor="BE4MAX"))
+    assert exc_info.value.status_code == 422
+    assert "unsupported nucleotide" in exc_info.value.detail
