@@ -1,5 +1,7 @@
 # CRISPR Base Editor Window Agent
 
+### [Open the Live Application →](https://abusuraihsakhri.github.io/crispr-base-editor-window-agent/)
+
 A research-use Python and browser tool for inspecting fixed activity-window profiles for selected cytosine and adenine base editors. It identifies editable positions within a 20-nt protospacer, distinguishes the intended target from same-locus bystander bases, and reports a deterministic heuristic score for each editable position.
 
 ## Scope
@@ -74,7 +76,7 @@ Example payload is provided in `sample_payload.json`.
 
 The static app in `web/` loads Pyodide and executes `crispr_base_editor.py` in the browser. It has no project backend and does not transmit guide sequences to this repository. Loading Pyodide itself requires access to the configured CDN.
 
-GitHub Pages deployment is automated from `master` by `.github/workflows/pages.yml`.
+GitHub Pages deployment is automated from `master` by `.github/workflows/pages.yml`. The deployment workflow also loads the live site in a headless browser, waits for the Pyodide engine, runs a guide analysis, and verifies JSON download output.
 
 ## Testing and quality checks
 
