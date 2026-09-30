@@ -37,3 +37,77 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+      - name: Set up Python for live browser verification
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Verify live Pyodide workflow and JSON download
+        env:
+          SITE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          python -m pip install "selenium>=4.25,<5"
+          python - <<'PY'
+          import json
+          import os
+          import time
+          from pathlib import Path
+
+          from selenium import webdriver
+          from selenium.webdriver.chrome.options import Options
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.support.ui import WebDriverWait
+
+          site_url = os.environ["SITE_URL"]
+          download_dir = Path("/tmp/browser-downloads")
+          download_dir.mkdir(parents=True, exist_ok=True)
+
+          options = Options()
+          options.add_argument("--headless=new")
+          options.add_argument("--no-sandbox")
+          options.add_argument("--disable-dev-shm-usage")
+          options.add_experimental_option(
+              "prefs",
+              {
+                  "download.default_directory": str(download_dir),
+                  "download.prompt_for_download": False,
+                  "download.directory_upgrade": True,
+              },
+          )
+
+          started = time.monotonic()
+          driver = webdriver.Chrome(options=options)
+          wait = WebDriverWait(driver, 120)
+          try:
+              driver.get(site_url)
+              wait.until(
+                  lambda d: "Python engine ready" in d.find_element(By.ID, "runtime-status").text
+              )
+              runtime_seconds = time.monotonic() - started
+
+              analyze = driver.find_element(By.ID, "analyze")
+              assert analyze.is_enabled(), "Analyze button remained disabled after Pyodide initialization"
+              analyze.click()
+
+              wait.until(
+                  lambda d: not d.find_element(By.ID, "results").get_attribute("hidden")
+              )
+              assert driver.find_element(By.ID, "target-score").text == "58.5%"
+              assert driver.find_element(By.ID, "bystanders").text == "1"
+
+              download = driver.find_element(By.ID, "download")
+              assert download.is_enabled(), "JSON download button remained disabled after analysis"
+              download.click()
+
+              result_file = download_dir / "base-editor-analysis.json"
+              wait.until(lambda _d: result_file.exists() and result_file.stat().st_size > 0)
+              data = json.loads(result_file.read_text(encoding="utf-8"))
+              assert data["editor_name"] == "BE4MAX"
+              assert data["intended_position"] == 6
+              assert data["bystander_count_in_window"] == 1
+
+              print(f"Live browser smoke test passed; Pyodide ready in {runtime_seconds:.1f}s")
+          finally:
+              driver.quit()
+          PY
