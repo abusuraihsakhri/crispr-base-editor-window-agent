@@ -1,150 +1,120 @@
-# Crispr Base Editor Window Agent
+# CRISPR Base Editor Window Agent
 
-> **Domain:** Computational Biology & AI Drug Discovery  
-> **Reference Guidelines & Standards:** `wwPDB, IUPAC & CLSI Computational Guidelines`
+A research-use Python and browser tool for inspecting fixed activity-window profiles for selected cytosine and adenine base editors. It identifies editable positions within a 20-nt protospacer, distinguishes the intended target from same-locus bystander bases, and reports a deterministic heuristic score for each editable position.
 
-<div align="center">
+## Scope
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB.svg?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688.svg?logo=fastapi&logoColor=white)
-![Audit Trail](https://img.shields.io/badge/Audit-HMAC--SHA256_Tamper--Evident-brightgreen.svg)
-![Zero-PHI Guard](https://img.shields.io/badge/Guard-Zero--PHI_Outbound-blue.svg)
-![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)
+Supported editor profiles are `BE4MAX`, `BE3`, `TARGET_AID`, `ABE7.10`, and `ABE8E`. The encoded per-position weights are fixed software heuristics. They are **not experimentally calibrated editing probabilities** and do not model sequence-context effects, chromatin, cell type, delivery, editor expression, PAM compatibility, genome-wide off-target activity, or other experimental determinants.
 
-</div>
+The `stop_codon_created` flag compares the 20-nt input and edited preview in a simple frame starting at protospacer position 1. It is not a transcript-aware coding consequence predictor.
 
----
+## Main features
 
-## 📖 What It Does
+- Validate 20-nt DNA protospacers and 3-symbol IUPAC PAM annotations.
+- Evaluate fixed CBE/ABE activity-window weights.
+- Select an intended editable position explicitly or automatically choose the highest-weight editable position.
+- Identify same-locus bystander bases within the modeled activity window.
+- Export deterministic results as JSON or batch CSV.
+- Run a FastAPI service for programmatic analysis.
+- Run the same Python engine in-browser with Pyodide; guide sequences are processed locally in the browser.
 
-CRISPR Base Editor Deamination Window & Bystander Mutation Prediction Engine
------------------------------------------------------------------------------
-Simulates Cytosine Base Editors (CBE: BE3, BE4max, Target-AID) and Adenine Base Editors
-(ABE: ABE7.10, ABE8e, ABE9) activity windows, calculates position-dependent deamination
-efficiencies, predicts bystander edit probabilities, and models codon alteration consequences.
+## Installation
 
-Domain: Synthetic Biology / Genome Engineering / Molecular Therapeutics
-Reference: Komor et al. Nature 2016; Gaudelli et al. Nature 2017; Richter et al. Nat Biotech 2020
+Python 3.9 or newer is required.
 
----
-
-## ⚙️ Key Capabilities & Algorithmic Modules
-
-### 🔬 Core Algorithmic & Evaluation Engines
-
-- **`TargetBaseEditDetail`**: Individual editable base within protospacer.
-- **`BaseEditorAnalysisResult`**: Complete CRISPR base editor protospacer evaluation.
-- **`CRISPRBaseEditorEngine`**: Engine for simulating base editor deamination windows and bystander edits.
-
----
-
-## 💻 CLI Quickstart & Usage
-
-### CRISPR Base Editor Engine (`crispr_base_editor.py`)
-
-#### Evaluate a Single Protospacer
 ```bash
-python crispr_base_editor.py eval --spacer ATCGATCGATCGATCGATCGAT --editor BE4MAX --pos 5
+python -m pip install -e ".[dev]"
 ```
 
-#### JSON Output
+## CLI
+
+Evaluate one guide:
+
 ```bash
-python crispr_base_editor.py eval --spacer ATCGATCGATCGATCGATCGAT --editor ABE8E --json
+crispr-base-editor-window-agent eval \
+  --spacer TTTTCTTTTTTTTTTTTTTT \
+  --editor BE4MAX \
+  --pos 5
 ```
 
-#### Batch Process gRNA CSV
+JSON output:
+
 ```bash
-python crispr_base_editor.py batch -i sample.csv -o results.csv
+crispr-base-editor-window-agent eval \
+  --spacer TTAAAAAAATTTTTTTTTTT \
+  --editor ABE8E \
+  --json
 ```
 
-#### Ask Base Editing Questions
+Batch processing:
+
 ```bash
-python crispr_base_editor.py chat "What is the editing window?"
+crispr-base-editor-window-agent batch -i sample.csv -o results.csv
 ```
 
-### Enterprise Agent CLI (`cli.py`)
+The batch file accepts `spacer` (or `protospacer`/`sequence`), optional `pam`, optional `editor`, and optional `pos` columns.
 
-#### Run Single Task Evaluation
+## REST API
+
+Start the local API:
+
 ```bash
-python cli.py audit --task-id TASK-001 --target TARGET-01 --primary 28.5 --secondary 14.2 --critical --status DISCORDANT
+uvicorn api:app --host 127.0.0.1 --port 8000
 ```
 
-#### Batch Process Task Records
+Endpoints:
+
+- `GET /health`
+- `GET /api/profiles`
+- `POST /api/analyze`
+
+Example payload is provided in `sample_payload.json`.
+
+## Browser application
+
+The static app in `web/` loads Pyodide and executes `crispr_base_editor.py` in the browser. It has no project backend and does not transmit guide sequences to this repository. Loading Pyodide itself requires access to the configured CDN.
+
+GitHub Pages deployment is automated from `master` by `.github/workflows/pages.yml`.
+
+## Testing and quality checks
+
 ```bash
-python cli.py batch -i sample.csv -o results.csv
+pytest -q
+ruff check --select E9,F63,F7,F82 .
+pip-audit .
 ```
 
-#### Verify Audit Trail Integrity
-```bash
-python cli.py verify-audit
-```
+CI validates Python 3.9 through 3.13, package installation, compilation, static checks, tests, an installed-CLI smoke test, dependency auditing, and static browser-app assets.
 
-#### Launch FastAPI REST Server
-```bash
-python cli.py serve --host 127.0.0.1 --port 8000
-```
-
-### Input Data Schema (Batch CSV)
-
-| Field | Description | Requirement |
-|:------|:------------|:------------|
-| `task_id` | Unique task identifier | Required |
-| `target_identifier` | Target entity identifier | Required |
-| `primary_metric` | Primary measurement value | Required |
-| `secondary_metric` | Secondary measurement value | Required |
-| `is_critical_flag` | Critical escalation flag | Optional |
-| `status_descriptor` | Status code descriptor | Optional |
-
----
-
-## 🛡️ Security & Enterprise Architecture
-
-* **Zero-PHI Outbound Interceptor:** Active regex inspection blocking SSNs, MRNs, phone numbers, emails, and patient identifiers.
-* **Tamper-Evident HMAC-SHA256 Audit Trail:** Chained, cryptographically signed logs for every evaluation and state transition. Set `AUDIT_SECRET_KEY` environment variable for persistent audit integrity across restarts.
-* **Air-Gapped LLM Reasoning Adapter:** Agnostic integration for local Ollama instances (`llama3`, `mistral`), Claude 3.5 Sonnet, GPT-4o, and deterministic test mocks.
-* **Active Learning Bayesian Calibration:** Dynamic tracker updating worker reliability weights and monitoring Brier calibration drift.
-* **FastAPI & Prometheus Telemetry:** Exposes OpenAPI 3.1 REST endpoints and operational Prometheus metrics (`/metrics`).
-* **Path Traversal Protection:** Input validation prevents directory traversal attacks in batch processing.
-* **Secure Error Handling:** API endpoints return generic error messages to prevent information leakage.
-
-### Environment Variables
-
-| Variable | Description | Default |
-|:---------|:------------|:--------|
-| `AUDIT_SECRET_KEY` | Secret key for HMAC-SHA256 audit trail signing | Randomly generated (ephemeral) |
-
----
-
-## 🧪 Testing & Verification
-
-### Install Development Dependencies
-```bash
-pip install -e ".[dev]"
-```
-
-### Run the Automated Test Suite
-```bash
-pytest -v
-```
-
-Tests cover:
-- CBE & ABE editor type mapping and window profiles
-- Protospacer evaluation and bystander mutation prediction
-- Stop codon detection and JSON export
-- CLI command execution
-- **Security features**: PHI detection, HMAC audit trail integrity, tamper detection, path traversal prevention
-
-### Execute High-Throughput Simulation
-```bash
-python simulator.py 1000
-```
-
----
-
-## 🐳 Container Deployment
+## Docker
 
 ```bash
 docker build -t crispr-base-editor-window-agent .
-docker run -p 8000:8000 crispr-base-editor-window-agent
+docker run --rm -p 8000:8000 crispr-base-editor-window-agent
 ```
+
+Or:
+
+```bash
+docker compose up --build
+```
+
+## Repository structure
+
+- `crispr_base_editor.py` — primary scientific heuristic and CLI.
+- `api.py` — FastAPI wrapper around the primary engine.
+- `web/` — browser-local Pyodide interface.
+- `test_crispr_base_editor.py`, `tests/` — regression and compatibility tests.
+- `agents/`, `base_editor_agent/`, `cli.py`, `enrichment.py` — retained legacy compatibility modules; they are not the primary production interface.
+
+## Scientific interpretation
+
+The implementation is a deterministic educational/research utility based on fixed positional windows inspired by early CBE/ABE literature, including Komor et al. (2016), Gaudelli et al. (2017), and later evolved ABE work. The numeric weights in this repository are software assumptions rather than a validated model derived from those publications. Experimental design decisions should use editor- and context-appropriate validated data and tools.
+
+## Privacy
+
+The CLI and local API process inputs on the machine where they run. The GitHub Pages application evaluates sequences in the browser. No analytics or project-side sequence collection is implemented.
+
+## License
+
+MIT. See `LICENSE`.

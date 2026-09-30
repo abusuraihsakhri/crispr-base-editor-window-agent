@@ -1,17 +1,12 @@
-version: '3.8'
-
 services:
-  crispr-base-editor-window-engine:
+  crispr-base-editor-window-agent:
     build: .
-    container_name: crispr-base-editor-window-engine
+    container_name: crispr-base-editor-window-agent
     ports:
       - "8000:8000"
-    environment:
-      - AUDIT_SECRET_KEY=crispr-base-editor-window-engine-prod-audit-key-2026
-      - MODEL_PROVIDER=mock
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
       interval: 30s
       timeout: 5s
       retries: 3

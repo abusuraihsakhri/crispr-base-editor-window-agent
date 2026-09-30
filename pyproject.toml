@@ -1,36 +1,55 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "crispr-base-editor-window-engine"
-version = "2.0.0"
-description = "BaseEditor-Window: Cytidine & Adenine Base Editing (CBE/ABE) Engine"
+name = "crispr-base-editor-window-agent"
+version = "2.1.0"
+description = "Research-use CRISPR CBE/ABE activity-window and same-locus bystander heuristic"
 readme = "README.md"
-authors = [{ name = "Dr. Abu Suraih Sakhri", email = "abusuraih@example.com" }]
+authors = [{ name = "Dr. Abu Suraih Sakhri" }]
 license = { text = "MIT" }
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
-    "Topic :: Security/Cryptography",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 requires-python = ">=3.9"
 dependencies = [
-    "pydantic>=2.0",
-    "fastapi>=0.110",
-    "uvicorn>=0.27",
+    "fastapi>=0.110,<1",
+    "pydantic>=2,<3",
+    "uvicorn>=0.27,<1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0",
+    "pip-audit>=2.7,<3",
+    "pytest>=8,<10",
+    "ruff>=0.6,<1",
 ]
 
 [project.scripts]
-crispr-base-editor-window-engine = "base_editor_agent.cli:main"
+crispr-base-editor-window-agent = "crispr_base_editor:main"
 
 [project.urls]
-Homepage = "https://github.com/abusuraihsakhri/crispr-base-editor-window-engine"
-Repository = "https://github.com/abusuraihsakhri/crispr-base-editor-window-engine.git"
+Homepage = "https://github.com/abusuraihsakhri/crispr-base-editor-window-agent"
+Repository = "https://github.com/abusuraihsakhri/crispr-base-editor-window-agent.git"
+
+[tool.setuptools]
+packages = ["agents", "base_editor_agent"]
+py-modules = [
+    "api",
+    "base_editor_agent_app",
+    "cli",
+    "crispr_base_editor",
+    "enrichment",
+    "simulator",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120

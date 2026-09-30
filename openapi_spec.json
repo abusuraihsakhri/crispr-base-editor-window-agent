@@ -1,113 +1,51 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Crispr Base Editor Window Engine API",
-    "description": "Enterprise Distributed Component Platform (Clinical & Cryptographic AI) adhering to CAP / CLSI / NIST Standards.",
-    "version": "3.0.0-ENTERPRISE",
-    "contact": {
-      "name": "Dr. Abu Suraih Sakhri",
-      "url": "https://github.com/abusuraihsakhri"
-    }
+    "title": "CRISPR Base Editor Window API",
+    "description": "Research-use API for fixed, heuristic CBE/ABE activity-window scoring and same-locus bystander identification. Scores are not assay-calibrated probabilities.",
+    "version": "2.1.0"
   },
   "paths": {
     "/health": {
       "get": {
-        "summary": "Health and metadata check",
+        "summary": "Service health and supported editors",
         "responses": {
-          "200": {
-            "description": "System optimal"
-          }
+          "200": {"description": "Service metadata"}
         }
       }
     },
-    "/metrics": {
+    "/api/profiles": {
       "get": {
-        "summary": "Prometheus operational metrics",
+        "summary": "Return fixed relative-activity profiles",
         "responses": {
-          "200": {
-            "description": "Prometheus text metrics"
-          }
+          "200": {"description": "Heuristic editor profiles"}
         }
       }
     },
-    "/api/audit": {
+    "/api/analyze": {
       "post": {
-        "summary": "Dispatch task payload across specialized workers",
+        "summary": "Analyze a 20-nt protospacer",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
+                "required": ["spacer"],
                 "properties": {
-                  "task_id": {
-                    "type": "string"
-                  },
-                  "target_identifier": {
-                    "type": "string"
-                  },
-                  "primary_metric": {
-                    "type": "number"
-                  },
-                  "secondary_metric": {
-                    "type": "number"
-                  },
-                  "status_descriptor": {
-                    "type": "string"
-                  },
-                  "is_critical_flag": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "task_id",
-                  "target_identifier",
-                  "primary_metric"
-                ]
+                  "spacer": {"type": "string", "minLength": 20, "maxLength": 20},
+                  "pam": {"type": "string", "default": "NGG", "minLength": 3, "maxLength": 3},
+                  "editor": {"type": "string", "default": "BE4MAX", "enum": ["BE4MAX", "BE3", "TARGET_AID", "ABE7.10", "ABE8E"]},
+                  "intended_position": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+                  "base_efficiency_scaling": {"type": "number", "minimum": 0, "maximum": 100, "default": 65.0}
+                }
               }
             }
           }
         },
         "responses": {
-          "200": {
-            "description": "Consensus dossier with HMAC signature"
-          }
-        }
-      }
-    },
-    "/api/chat": {
-      "post": {
-        "summary": "Air-gapped supervisory conversational assistant",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "query": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "query"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Supervisory response"
-          }
-        }
-      }
-    },
-    "/api/audit/logs": {
-      "get": {
-        "summary": "Retrieve and cryptographically verify HMAC audit trail",
-        "responses": {
-          "200": {
-            "description": "Cryptographic audit trail"
-          }
+          "200": {"description": "Base-editor window analysis"},
+          "422": {"description": "Invalid input"}
         }
       }
     }
